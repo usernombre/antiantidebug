@@ -160,7 +160,7 @@ int is_operand_mem_is(instruction_info * instruction, int operand, ud_type base,
 }
 
 template <class T>
-T operation(T num, ud_mnemonic_code inst, __int64 realvalue)
+T operation(T num, ud_mnemonic_code inst, int64_t realvalue)
 {
 	T value = realvalue;
 	switch (inst) {
@@ -180,11 +180,15 @@ T operation(T num, ud_mnemonic_code inst, __int64 realvalue)
 }
 
 template <class T>
-unsigned __int64 toUnsigned64(T num) {
-	return ((((unsigned __int64)1) << (8 * sizeof(num))) - 1) & ((unsigned __int64)num);
+uint64_t toUnsigned64(T num) {
+	// Shifting by 64 is undefined, so a 64-bit T needs no mask
+	if (sizeof(num) >= sizeof(uint64_t)) {
+		return (uint64_t)num;
+	}
+	return ((((uint64_t)1) << (8 * sizeof(num) % 64)) - 1) & ((uint64_t)num);
 }
 template <class T>
-T operation(T num, ud_mnemonic_code inst, __int64 realvalue, Flags * flags)
+T operation(T num, ud_mnemonic_code inst, int64_t realvalue, Flags * flags)
 {
 	T value = realvalue;
 	T res = 0;
@@ -273,7 +277,7 @@ T operation(T num, ud_mnemonic_code inst, __int64 realvalue, Flags * flags)
 	} else {
 		flags->ZF = 0;
 	}
-	unsigned __int64 tres = res & 0xFF;
+	uint64_t tres = res & 0xFF;
 	int i = 0;
 	while (tres != 0) {
 		i += tres & 1;
@@ -392,7 +396,7 @@ signed long long get_immediate_value(instruction_info * instruction, int operand
 		if (GET_OPERAND_SIZE(*instruction, 0) == 8 && GET_OPCODE(*instruction) != MOV)
 			return (signed long long)instruction->operands[operand].value;
 		else
-			return (signed long)instruction->operands[operand].value;
+			return (int32_t)instruction->operands[operand].value;
 	case 8:	return (signed long long)instruction->operands[operand].value;
 	}
 	return 0;
@@ -694,7 +698,7 @@ int Cleaner::clear0Minus(uint64_t * address, instruction_info * result) {
 		return false;
 	}
 	int is_esp = 0;
-	__int64 imm_val = get_immediate_value(result, 0);
+	int64_t imm_val = get_immediate_value(result, 0);
 	if (imm_val) {
 		if (imm_val != -size) return false;
 		is_esp = 1;

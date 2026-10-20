@@ -2,6 +2,12 @@
 build
 /themida/oreans_deobfuscator/oreans_deobfuscator.c
 /themida/oreans_deobfuscator/oreans_deobfuscator.pyd
+/themida/oreans_deobfuscator/_oreans_deobfuscator.c
 *.pyd
+*.so
+*.o
 *.pyo
 *.sublime-workspace
+.vscode
+
+*.exe

@@ -1,3 +1,4 @@
+import os
 from distutils.util import get_platform
 from cffi import FFI
 
@@ -8,7 +9,7 @@ if get_platform() == "win32":
 elif get_platform() == "win-amd64":
     folder = "x64"
 else:
-    assert False # Unsupported platform
+    folder = None # x86utils libraries built by its linux/build.sh
 
 
 ffi.cdef("""
@@ -88,15 +89,31 @@ enum ud_type
 };
 """)
 
-x86utils_dir = r"..\..\..\x86utils"
+if folder is not None:
+    x86utils_dir = r"..\..\..\x86utils"
 
-extra_args = dict(
-     sources=["Cleaner.cpp",
-              "deobfuscator.cpp"],
-     include_dirs=[ r'%s\x86utils' % x86utils_dir, r'%s\libyasm-2.1.2' % x86utils_dir, r'%s\udis86-1.7.2' % x86utils_dir, '.'],
-     library_dirs=[r'%s\%s\Release' % (x86utils_dir, folder)],
-     libraries=['x86utils', 'modules', 'libyasm', 'libudis86'],
-)
+    extra_args = dict(
+         sources=["Cleaner.cpp",
+                  "deobfuscator.cpp"],
+         include_dirs=[ r'%s\x86utils' % x86utils_dir, r'%s\libyasm-2.1.2' % x86utils_dir, r'%s\udis86-1.7.2' % x86utils_dir, '.'],
+         library_dirs=[r'%s\%s\Release' % (x86utils_dir, folder)],
+         libraries=['x86utils', 'modules', 'libyasm', 'libudis86'],
+    )
+else:
+    here = os.path.dirname(os.path.abspath(__file__))
+    # x86utils next to this repository (as on Windows) or inside it, unless X86UTILS_DIR is set
+    candidates = [os.path.join(here, "..", "..", "..", "x86utils"), os.path.join(here, "..", "..", "x86utils")]
+    x86utils_dir = os.environ.get("X86UTILS_DIR") or next((d for d in candidates if os.path.isdir(d)), candidates[0])
+    x86utils_build = os.path.join(x86utils_dir, "linux", "build")
+
+    extra_args = dict(
+         sources=[os.path.join(here, "Cleaner.cpp"),
+                  os.path.join(here, "deobfuscator.cpp")],
+         include_dirs=[os.path.join(x86utils_dir, "x86utils"), os.path.join(x86utils_dir, "udis86-1.7.2"),
+                       os.path.join(x86utils_build, "udis86"), os.path.join(x86utils_build, "udis86", "libudis86"), here],
+         library_dirs=[os.path.join(x86utils_build, "lib")],
+         libraries=['x86utils', 'yasm', 'udis86', 'stdc++'],
+    )
 ffi.set_source("_oreans_deobfuscator", """
 #include <string.h>
 #include <deobfuscator.h>

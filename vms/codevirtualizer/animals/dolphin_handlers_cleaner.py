@@ -1,7 +1,7 @@
 import handlers_parser
 
 def clean_junk_check(handlers, fields, arch):
-    cleaner = handlers_parser.HandlerParser.get_parser(r"handlers\dolphin_clean.txt", arch.mode)
+    cleaner = handlers_parser.HandlerParser.get_parser("handlers/dolphin_clean.txt", arch.mode)
     for handler in handlers:
         cleaner.clean_handler(handler.handler, fields)
 
@@ -41,5 +41,5 @@ def clean_junk_flag(handlers, fields, arch):
 
 def fix_encoding_values(handler, fields, arch):
     # TODO: Do it for real... Verify everything
-    cleaner = handlers_parser.HandlerParser.get_parser(r"handlers\dolphin_encoding_clean.txt", arch.mode)
+    cleaner = handlers_parser.HandlerParser.get_parser("handlers/dolphin_encoding_clean.txt", arch.mode)
     cleaner.clean_handler(handler, fields)

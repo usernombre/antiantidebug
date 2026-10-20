@@ -4,7 +4,7 @@ from collections import namedtuple
 OperandPos = namedtuple("OperandPos", ["pos", "operand"])
 ARGS = ["X", "Y", "Z", "A", "B", "C"]
 def generate_templates(mode):
-    templates_file = open(r"files\codevirtualizer\cisc\cisc_templates_%d.txt" % mode, "w")
+    templates_file = open("files/codevirtualizer/cisc/cisc_templates_%d.txt" % mode, "w")
     
     templates_file.write("OPTION RUN_ONCE\n\n")
     
