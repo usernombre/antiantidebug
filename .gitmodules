@@ -1,0 +1,3 @@
+[submodule "x86utils"]
+	path = x86utils
+	url = git@github.com:usernombre/x86utils.git

@@ -272,7 +272,7 @@ class VMHandlers(object):
         print "SUCCESS"
 
 
-        parser = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_basic.txt", self.mode)
+        parser = handlers_parser.HandlerParser.get_parser("handlers/handlers_basic.txt", self.mode)
         print "Analyzing handlers... PASS 1/2"
         self._start_progress_bar()
         for i in xrange(vm_info.init_handler.handlers_count):
@@ -285,8 +285,8 @@ class VMHandlers(object):
 
         print "SUCCESS"
 
-        self.parser_encoding = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_encoding.txt", self.mode)
-        self.parser_final = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_final.txt", self.mode)
+        self.parser_encoding = handlers_parser.HandlerParser.get_parser("handlers/handlers_encoding.txt", self.mode)
+        self.parser_final = handlers_parser.HandlerParser.get_parser("handlers/handlers_final.txt", self.mode)
         print "Analyzing handlers... PASS 2/2"
         self._start_progress_bar()
         for handler in self.handlers.itervalues():
@@ -472,8 +472,8 @@ class FISHVMHandlers(ObfuscatedVMHandlers):
     HANDLERS = fish_handlers.HANDLERS
 
     def __init__(self, file, vm_info):
-        self.fish_parser_encoding = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_encoding_fish.txt", file.mode)
-        self.fish_encoding_parser = handlers_parser.HandlerParser.get_parser(r"handlers\fish_encoded_value.txt", file.mode)
+        self.fish_parser_encoding = handlers_parser.HandlerParser.get_parser("handlers/handlers_encoding_fish.txt", file.mode)
+        self.fish_encoding_parser = handlers_parser.HandlerParser.get_parser("handlers/fish_encoded_value.txt", file.mode)
         super(FISHVMHandlers, self).__init__(file, vm_info)
 
     def _decompile_handler(self, func):
@@ -507,8 +507,8 @@ class TIGERVMHandlers(ObfuscatedVMHandlers):
     HANDLERS = tiger_handlers.HANDLERS
 
     def __init__(self, file, vm_info):
-        self.tiger_parser_encoding = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_encoding_tiger.txt", file.mode)
-        self.tiger_final_parser = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_final_tiger.txt", file.mode)
+        self.tiger_parser_encoding = handlers_parser.HandlerParser.get_parser("handlers/handlers_encoding_tiger.txt", file.mode)
+        self.tiger_final_parser = handlers_parser.HandlerParser.get_parser("handlers/handlers_final_tiger.txt", file.mode)
         self.xchg = {}
         super(TIGERVMHandlers, self).__init__(file, vm_info)
 
@@ -541,9 +541,9 @@ class DOLPHINVMHandlers(ObfuscatedVMHandlers):
     HANDLERS = dolphin_handlers.HANDLERS
 
     def __init__(self, file, vm_info):
-        self.dolphin_parser_encoding = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_encoding_dolphin.txt", file.mode)
-        #self.fish_encoding_parser = handlers_parser.HandlerParser.get_parser(r"handlers\fish_encoded_value.txt", file.mode)
-        self.dolphin_final_parser = handlers_parser.HandlerParser.get_parser(r"handlers\handlers_final_dolphin.txt", file.mode)
+        self.dolphin_parser_encoding = handlers_parser.HandlerParser.get_parser("handlers/handlers_encoding_dolphin.txt", file.mode)
+        #self.fish_encoding_parser = handlers_parser.HandlerParser.get_parser("handlers/fish_encoded_value.txt", file.mode)
+        self.dolphin_final_parser = handlers_parser.HandlerParser.get_parser("handlers/handlers_final_dolphin.txt", file.mode)
         super(DOLPHINVMHandlers, self).__init__(file, vm_info)
 
     def _decompile_handler(self, func):
@@ -888,7 +888,7 @@ class VMFunction(vm.VMFunction):
         pass
 
     def _process_instructions(self, instructions, instructions_map):
-        templates.Templates.get_template(r"codevirtualizer\animals\animals_00_clean.txt", self.mode).clean(instructions, update_instructions=instructions_map)
+        templates.Templates.get_template("codevirtualizer/animals/animals_00_clean.txt", self.mode).clean(instructions, update_instructions=instructions_map)
 
     def _clean_vm_start(self, instructions, instructions_map):
         vm_start_end = None
@@ -899,7 +899,7 @@ class VMFunction(vm.VMFunction):
                 break
         assert vm_start_end is not None
         tinsts = instructions[:vm_start_end]
-        templates.Templates.get_template(r"codevirtualizer\animals\animals_00_clean_vm_start.txt", self.mode).clean(tinsts, update_instructions=instructions_map, vars=dict(self.vm_info.regs_fields))
+        templates.Templates.get_template("codevirtualizer/animals/animals_00_clean_vm_start.txt", self.mode).clean(tinsts, update_instructions=instructions_map, vars=dict(self.vm_info.regs_fields))
         instructions[:vm_start_end] = tinsts
 
     def _get_instruction(self, name, args, state):
@@ -922,7 +922,7 @@ class VMFunction(vm.VMFunction):
 
         for template in self._get_clean_templates():
             print ("Applying %s," % template),
-            templates.Templates.get_template(r"codevirtualizer\animals\%s" % template, self.mode).clean(self.instructions, vars)
+            templates.Templates.get_template("codevirtualizer/animals/%s" % template, self.mode).clean(self.instructions, vars)
             print "OK."
 
         print "After processing: %d instructions" % len(self.instructions)
@@ -1069,7 +1069,7 @@ class TIGERVMFunction(VMFunction):
 class DOLPHINVMFunction(VMFunction):
     def _process_instructions(self, instructions, instructions_map):
         super(DOLPHINVMFunction, self)._process_instructions(instructions, instructions_map)
-        templates.Templates.get_template(r"codevirtualizer\animals\dolphin_00_clean.txt", self.mode).clean(instructions, update_instructions=instructions_map)
+        templates.Templates.get_template("codevirtualizer/animals/dolphin_00_clean.txt", self.mode).clean(instructions, update_instructions=instructions_map)
 
     def _get_clean_templates(self):
         return VMFunction._get_clean_templates(self) + ["dolphin_01_xchg.txt"]

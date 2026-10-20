@@ -541,7 +541,7 @@ class VMFunction(vm.VMFunction):
 
         for template in TEMPLATES:
             print ("Applying %s," % template),
-            templates.Templates.get_template(r"codevirtualizer\cisc\%s" % template, self.mode).clean(self.instructions)
+            templates.Templates.get_template("codevirtualizer/cisc/%s" % template, self.mode).clean(self.instructions)
             print "OK."
 
         print "After processing: %d instructions" % len(self.instructions)

@@ -43,8 +43,8 @@ class VMKey(object):
     def __init__(self, key):
         pass
 
-INSTRUCTIONS_32 = {x.split(" ", 1)[0]: x.split(" ", 1)[1] for x in open(r"%s\templates\instructions_32.txt" % os.path.dirname(os.path.abspath(__file__)), "rb").read().splitlines()}
-INSTRUCTIONS_64 = {x.split(" ", 1)[0]: x.split(" ", 1)[1] for x in open(r"%s\templates\instructions_64.txt" % os.path.dirname(os.path.abspath(__file__)), "rb").read().splitlines()}
+INSTRUCTIONS_32 = {x.split(" ", 1)[0]: x.split(" ", 1)[1] for x in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "instructions_32.txt"), "rb").read().splitlines()}
+INSTRUCTIONS_64 = {x.split(" ", 1)[0]: x.split(" ", 1)[1] for x in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "instructions_64.txt"), "rb").read().splitlines()}
 
 class VMInstruction(object):
     def __init__(self, name, *args):

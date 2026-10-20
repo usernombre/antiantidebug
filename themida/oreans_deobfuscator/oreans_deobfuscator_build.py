@@ -1,15 +1,8 @@
-from distutils.util import get_platform
+import sys
+import platform
 from cffi import FFI
 
 ffi = FFI()
-
-if get_platform() == "win32":
-    folder = "Win32"
-elif get_platform() == "win-amd64":
-    folder = "x64"
-else:
-    assert False # Unsupported platform
-
 
 ffi.cdef("""
 void *memcpy(unsigned char *s1, unsigned char *s2, int n);
@@ -88,15 +81,25 @@ enum ud_type
 };
 """)
 
-x86utils_dir = r"..\..\..\x86utils"
-
-extra_args = dict(
-     sources=["Cleaner.cpp",
-              "deobfuscator.cpp"],
-     include_dirs=[ r'%s\x86utils' % x86utils_dir, r'%s\libyasm-2.1.2' % x86utils_dir, r'%s\udis86-1.7.2' % x86utils_dir, '.'],
-     library_dirs=[r'%s\%s\Release' % (x86utils_dir, folder)],
-     libraries=['x86utils', 'modules', 'libyasm', 'libudis86'],
-)
+system, architecture = (platform.system(), platform.architecture()[0])
+if system == "Windows":
+    x86utils = r"..\..\x86utils"
+    extra_args = dict(
+         sources=["Cleaner.cpp", "deobfuscator.cpp"],
+         include_dirs=[r'%s\x86utils' % x86utils, r'%s\libyasm-2.1.2' % x86utils, r'%s\udis86-1.7.2' % x86utils, '.'],
+         library_dirs=[r'%s\%s\Release' % (x86utils, "x64" if architecture == "64bit" else "Win32")],
+         libraries=['x86utils', 'modules', 'libyasm', 'libudis86'],
+    )
+elif system == "Linux":
+    extra_args = dict(
+         sources=["Cleaner.cpp", "deobfuscator.cpp"],
+         include_dirs=["../../x86utils/x86utils", "../../x86utils/udis86-1.7.2", "."],
+         library_dirs=["../../x86utils/linux/build/lib"],
+         libraries=['x86utils', 'yasm', 'udis86', 'stdc++'],
+    )
+else:
+    print "Unsupported system %s" % system
+    sys.exit(1)
 ffi.set_source("_oreans_deobfuscator", """
 #include <string.h>
 #include <deobfuscator.h>

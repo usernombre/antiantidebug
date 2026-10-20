@@ -206,7 +206,7 @@ class Templates(object):
     def get_template(cls, name, mode):
         if cls.cache.has_key((name, mode)):
             return cls.cache[(name, mode)]
-        res = cls(open(r"%s\files\%s" % (os.path.dirname(os.path.abspath(__file__)), name), "r"), mode)
+        res = cls(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", name), "r"), mode)
         cls.cache[(name, mode)] = res
         return res
 
