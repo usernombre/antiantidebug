@@ -813,7 +813,7 @@ class Handler(object):
         while new_block:
             new_block = False
             for inst in block.instructions:
-                if inst.opcode in ("mov", "movzx", "movsx", "add", "sub", "xor", "and", "or", "shl", "shr", "rcl", "rcr", "rol", "ror", "imul", "inc", "dec", "not", "neg"):
+                if inst.opcode in ("mov", "movzx", "movsx", "movsxd", "add", "sub", "xor", "and", "or", "shl", "shr", "rcl", "rcr", "rol", "ror", "imul", "inc", "dec", "not", "neg"):
                     state.flags = Invalid()
                     lvalue = get_operand_value(inst.operands[0])
                     if inst.opcode in ("inc", "dec", "not", "neg"):
@@ -828,6 +828,12 @@ class Handler(object):
                             elif inst.opcode == "movsx":
                                 assert inst.operands[1].is_reg()
                                 value = SignedConversion(value, inst.operands[1].size)
+                            elif inst.opcode == "movsxd":
+                                # Themida 3.x reads dword bytecode parameters with movsxd reg64, dword [mem].
+                                # A memory source is treated like movzx from memory (a plain read): the sign
+                                # extension to 64 bits is dropped, so negative 32-bit values lose their high half.
+                                if inst.operands[1].is_reg():
+                                    value = SignedConversion(value, inst.operands[1].size)
                             else:
                                 assert inst.opcode == "mov"
                         else:
@@ -1055,6 +1061,8 @@ class Handler(object):
                     self.make_visible(instructions[-1])
                 elif inst.opcode == "std":
                     instructions.append(Std())
+                elif inst.opcode == "nop":
+                    pass
                 elif inst.opcode == state.mode.translate("movs{SB}") and inst.prefix == "rep":
                     instructions.append(MemCopy(state.get_register("di"),
                                                 state.get_register("si"),

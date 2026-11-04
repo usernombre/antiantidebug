@@ -62,6 +62,13 @@ class HandlerReader(object):
             return None
 
     def get_size(self):
+        if "OPCODE_SIZE" not in self.info.vars and "EIP_DELTA" in self.params:
+            # Themida 3.x: a signed 32-bit distance. DecodingState.update_ip takes sign-magnitude
+            # (bit 31 set = go back by the low 31 bits), so convert from two's complement.
+            delta = self.params["EIP_DELTA"] & 0xffffffff
+            if delta & 0x80000000:
+                return 0x80000000 | (0x100000000 - delta)
+            return delta
         return self.info.vars["OPCODE_SIZE"]
 
     def get_result(self):
@@ -201,7 +208,11 @@ JUMP_TO_NEXT_HANDLER = match_one([
 ])
 
 UPDATE_IP_AND_JUMP = match_funcs([
-    lines_matcher(["UpdateEip($H[OPCODE_SIZE])"]),
+    match_one([
+        lines_matcher(["UpdateEip($H[OPCODE_SIZE])"]),
+        # Themida 3.x: the signed (two's complement) distance to the next instruction is a bytecode parameter
+        lines_matcher(["UpdateEipSigned(ReadParameterDword($P[EIP_DELTA]))"]),
+    ]),
     JUMP_TO_NEXT_HANDLER
 ])
 
@@ -334,11 +345,28 @@ STOS_MAIN = string_op(["*($G[SIZES:SIZE]*)*({SU}*)$V[VAR_DI_OFFSET] = VMStructFi
 LODS_MAIN = string_op(["VMStructField$G[SIZES2:SIZE2](ReadParameterWord($P[AX_OFFSET])) = *($G[SIZES:SIZE]*)*({SU}*)$V[VAR_SI_OFFSET]"])
 
 
-LODS = HandlerMatch(match_funcs([
-    READ_SI,
-    LODS_MAIN,
+# Themida 3.x, 64 bit: LODSD stores through a pointer to the AX field and zeroes its high dword.
+# The SI and AX pointer loads look alike, so try both orders (any_order would not backtrack).
+_READ_AX_OFFSET = lines_matcher(["$V[VAR_AX_OFFSET] = VMStructOffset(ReadParameterWord($P[AX_OFFSET]))"])
+_LODS_DWORD_64_REST = [
+    string_op(["*($G[SIZES:SIZE]*)$V[VAR_AX_OFFSET] = *($G[SIZES:SIZE]*)*({SU}*)$V[VAR_SI_OFFSET]",
+               "*(DWORD*)($V[VAR_AX_OFFSET] + 0x4) = 0x0"]),
     UPDATE_SI,
     UPDATE_IP_AND_JUMP
+]
+LODS_DWORD_64 = only_64(match_one([
+    match_funcs([READ_SI, _READ_AX_OFFSET] + _LODS_DWORD_64_REST),
+    match_funcs([_READ_AX_OFFSET, READ_SI] + _LODS_DWORD_64_REST),
+    ]))
+
+LODS = HandlerMatch(match_one([
+    match_funcs([
+        READ_SI,
+        LODS_MAIN,
+        UPDATE_SI,
+        UPDATE_IP_AND_JUMP
+    ]),
+    LODS_DWORD_64,
     ]), create_string_op_handler_reader("LODS"))
 
 STOS = HandlerMatch(match_funcs([

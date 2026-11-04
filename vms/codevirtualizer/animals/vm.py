@@ -61,10 +61,30 @@ class VMInit(VMHandler):
             registers = 8
 
         #pusha_regs = ["eax", "ecx", "edx", "ebx", "ebx", "ebp", "esi", "edi"]
+        # Themida 3.x (64 bit) pushes one register less: the entry stub pushed an extra value, which gives the
+        # frame the missing slot (see below)
+        self.v3 = False
         for i in xrange(registers):
-            self.regs.append(reader.get_cond(lambda x: x.opcode == "push" and x.operands[0].is_reg()).operands[0].reg)
+            try:
+                self.regs.append(reader.get_cond(lambda x: x.opcode == "push" and x.operands[0].is_reg()).operands[0].reg)
+            except cleaner.CleanerException:
+                if file.mode != 64 or i != registers - 1:
+                    raise
+                self.v3 = True
+                break
 
-        if file.mode == 64:
+        if file.mode == 64 and self.v3:
+            # mov r8, rcx: rcx is parked until the base address is computed
+            v3_saved_rcx = reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg() and x.operands[1].is_reg("rcx")).operands[0].reg
+            # mov r9, qword [rsp+0x78]: the stub's extra value
+            reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg() and x.operands[1].is_memory() and x.operands[1].base == "rsp" and x.operands[1].index is None and x.operands[1].offset == 0x78)
+            # mov rcx, qword [rsp+0x70]: the result of the call
+            reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg("rcx") and x.operands[1].is_memory() and x.operands[1].base == "rsp" and x.operands[1].index is None and x.operands[1].offset == 0x70)
+            # mov qword [rsp+0x78], rax
+            self.regs.insert(1, reader.get_cond(lambda x: x.opcode == "mov" and x.operands[1].is_reg() and x.operands[0].is_memory() and x.operands[0].base == "rsp" and x.operands[0].index is None and x.operands[0].offset == 0x78).operands[1].reg)
+            # rcx itself is stored later into the call's slot, [rsp+0x70]
+            self.regs.insert(2, "rcx")
+        elif file.mode == 64:
             # Now get the result of the call and put the last register
             # mov rcx, qword [rsp+0x78]
             reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg("rcx") and x.operands[1].is_memory() and x.operands[1].base == "rsp" and x.operands[1].index is None and x.operands[1].offset == 0x78)
@@ -115,6 +135,18 @@ class VMInit(VMHandler):
             vm_info.struct_fields["ORIGINAL_BASE_ADDRESS"] = reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg("ebx") and x.operands[1].is_immediate()).operands[1].value
             # mov [ebp+ebx], X
             self.original_base_address = reader.get_cond(lambda x: x.opcode == "mov" and x.operands[1].is_immediate() and x.operands[0].is_memory() and ((x.operands[0].base == mode.reg_native("bp") and x.operands[0].index == mode.reg_native("bx")) or (x.operands[0].index == mode.reg_native("bp") and x.operands[0].base == mode.reg_native("bx"))) and x.operands[0].offset == 0 and x.operands[0].scale == 0).operands[1].value
+
+        if self.v3:
+            # Themida 3.x adds two blocks here, each behind a constant condition (mov reg, imm; test reg, reg; jz).
+            # One stores a relocated pointer, the other stores (TEB << 32 | the stub's extra value) into a global.
+            # Neither matters for devirtualizing, so skip to where rcx is put into its frame slot: mov qword [rsp+0x70], r8
+            for _ in xrange(64):
+                inst = reader.get()
+                if inst.opcode == "mov" and inst.operands[0].is_memory() and inst.operands[0].base == "rsp" and inst.operands[0].index is None and \
+                        inst.operands[0].offset == 0x70 and inst.operands[1].is_reg(v3_saved_rcx):
+                    break
+            else:
+                raise cleaner.CleanerException("Themida 3.x VMInit: mov qword [rsp+0x70], %s not found" % v3_saved_rcx)
 
         # mov ebx, X
         vm_info.struct_fields["EIP"] = reader.get_cond(lambda x: x.opcode == "mov" and x.operands[0].is_reg("ebx") and x.operands[1].is_immediate()).operands[1].value
@@ -575,6 +607,9 @@ class DOLPHINVMHandlers(ObfuscatedVMHandlers):
         #fish_handlers_cleaner.fix_encoding_values(handler, self.fields)
         self.dolphin_final_parser.clean_handler(handler.handler, self.fields)
         VMHandlers._process_final(self, handler)
+        # Themida 3.x: the next-handler offset is still in a temp variable the first time; VMHandlers._process_final
+        # inlines it, so try again
+        self.dolphin_final_parser.clean_handler(handler.handler, self.fields)
 
     def _find_old_reset_keys_handler(self):
         # There wasn't change in the key, so use the new mechanism
@@ -680,6 +715,13 @@ class VMFunctionJumper(vm.VMFunctionJumper):
         clean.set_option("ignore_jumps", False)
         if file.mode == 32:
             address = cleaner.JunkSkipper(file).get_next_real_instruction(address).address
+        else:
+            # Themida 3.x: a native instruction executed outside the VM is followed by a jmp to the re-entry stub
+            for _ in xrange(8):
+                inst = file.get_instruction(address)
+                if not (inst.opcode == "jmp" and inst.operands[0].is_immediate()):
+                    break
+                address = inst.operands[0].value
         reader = clean.get_reader(address)
 
         #b = True
@@ -705,6 +747,13 @@ class VMFunctionJumper(vm.VMFunctionJumper):
         reader.get_cond(lambda x: str(x) == mode.translate("mov {S} [{R:sp}+0x{N:0x4}], {R:bx}"))
         reader.get_cond(lambda x: str(x) == mode.translate("pop {R:bx}"))
         reader.get_cond(lambda x: str(x) == mode.translate("pop {R:ax}"))
+        # Themida 3.x pushes one more value before the jump. VMInit stores it, together with the thread, in a global
+        # (looks like an entry id); the devirtualizer doesn't need it.
+        self.entry_id = None
+        try:
+            self.entry_id = reader.get_cond(lambda x: x.opcode == "push" and x.operands[0].is_immediate()).operands[0].value
+        except cleaner.CleanerException:
+            pass
         self.vm_address = reader.get_cond(lambda x: x.opcode == "jmp" and x.operands[0].is_immediate()).operands[0].value
 
     def get_vm_address(self):
@@ -721,6 +770,12 @@ class VMFunction(vm.VMFunction):
         first_handler = jumper.first_handler
 
         self.vm_info = vm_info
+
+        # Themida 3.x: each instruction carries the distance to the next one, so the bytecode is not laid out in
+        # execution order. The code is then emitted in walk order instead of address order, with an explicit jump
+        # wherever a path runs into code that was already walked (merge_jumps: last address -> target address).
+        self.v3 = getattr(self.vm_info.init_handler, "v3", False)
+        merge_jumps = {}
 
         addresses_to_explore = Queue.Queue()
         starts = []
@@ -748,10 +803,13 @@ class VMFunction(vm.VMFunction):
                 instructions[address].set_info("labled", True)
                 continue
 
+            last_address = None
             while handler is not None:
                 if instructions.has_key(state.address):
-                    if next_labeled:
+                    if next_labeled or self.v3:
                         instructions[state.address].set_info("labled", True)
+                    if self.v3 and last_address is not None:
+                        merge_jumps[last_address] = state.address
                     break
 
                 h = self.vm_info.handlers.handlers[handler]
@@ -765,6 +823,8 @@ class VMFunction(vm.VMFunction):
                 inst.address = state.address
                 inst.set_info("labled", next_labeled)
                 next_labeled = False
+                # Themida 3.x: handler of the VM re-entry to walk right after this instruction (see below)
+                reentry_handler = None
 
                 if inst.name == "JMP_UNKNOWN":
                     # Jump to an unknown instruction
@@ -773,7 +833,10 @@ class VMFunction(vm.VMFunction):
                     jumper = VMFunctionJumper(file, i.next)
                     # Continue with current state
                     state.address = jumper.vm_code_address + self.vm_info.init_handler.base_address
-                    addresses_to_explore.put((jumper.vm_code_address + self.vm_info.init_handler.base_address, jumper.first_handler, state))
+                    if self.v3:
+                        reentry_handler = jumper.first_handler
+                    else:
+                        addresses_to_explore.put((jumper.vm_code_address + self.vm_info.init_handler.base_address, jumper.first_handler, state))
                     starts.append(jumper.vm_code_address + self.vm_info.init_handler.base_address)
                 elif inst.name == "JMP":
                     state.update_ip(inst.args[0])
@@ -783,6 +846,7 @@ class VMFunction(vm.VMFunction):
                     instructions[inst.address] = inst
                     instructions_list.append(inst)
                     next_labeled = True
+                    last_address = None     # the JMP itself already transfers control
                     continue
                 elif inst.name in ("JZ", "JNZ", "JA", "JAE", "JB", "JBE", "JG", "JGE", "JL", "JLE", "JNO", "JNP", "JNS", "JO", "JP", "JS"):
                     state.update_ip(inst.args[0])
@@ -794,7 +858,10 @@ class VMFunction(vm.VMFunction):
                     jumper = VMFunctionJumper(file, inst.args[1])
                     # We continue with current state. But RESET_KEYS will probably be called anyway, since this call can use this same VM.
                     state.address = jumper.vm_code_address + self.vm_info.init_handler.base_address
-                    addresses_to_explore.put((jumper.vm_code_address + self.vm_info.init_handler.base_address, jumper.first_handler, state))
+                    if self.v3:
+                        reentry_handler = jumper.first_handler
+                    else:
+                        addresses_to_explore.put((jumper.vm_code_address + self.vm_info.init_handler.base_address, jumper.first_handler, state))
                     starts.append(jumper.vm_code_address + self.vm_info.init_handler.base_address)
                     inst.args = inst.args[:-1]
                     inst.name = inst.name[:-len("_NEXT")]
@@ -815,11 +882,18 @@ class VMFunction(vm.VMFunction):
                 handler = handler_reader.get_next_handler()
                 if handler is not None:
                     state.update_ip(handler_reader.get_size())
+                elif reentry_handler is not None:
+                    # Themida 3.x: code is emitted in walk order, so walk the re-entry now; it then directly follows
+                    # the call / native instruction (state.address already points to it)
+                    handler = reentry_handler
+                    next_labeled = True
 
                 instructions[inst.address] = inst
                 instructions_list.append(inst)
+                last_address = inst.address
         print "SUCCESS"
 
+        walk_order = [inst.address for inst in instructions_list]
         self._process_instructions(instructions_list, instructions)
 
         if not self.vm_info.regs_fields:
@@ -871,7 +945,7 @@ class VMFunction(vm.VMFunction):
             reader.get_cond(lambda x: x.name == "ADD_SP_IMM" and x.args[0] == arch.native_size() * 2)
 
         self.instructions = []
-        for address in sorted(instructions.keys()):
+        for address in (walk_order if self.v3 else sorted(instructions.keys())):
             if instructions[address].info["labled"]:
                 if starts.count(address):
                     label = vminstruction.VMInstruction("STARTLABEL", address)
@@ -882,6 +956,10 @@ class VMFunction(vm.VMFunction):
             # Don't add instructions that were removed during cleaning
             if instructions[address] in instructions_list:
                 self.instructions.append(instructions[address])
+            if address in merge_jumps:
+                jump = vminstruction.VMInstruction("JMP", merge_jumps[address])
+                jump.address = address
+                self.instructions.append(jump)
         self.code = None
 
         self._clean()
@@ -956,18 +1034,30 @@ class VMFunction(vm.VMFunction):
                     continue
             i += 1
 
+    def _v3_trailing_jump(self, reader, registers):
+        """Themida 3.x: after a call or native instruction, the VM re-entry may have been emitted elsewhere already;
+        the walk then added an explicit JMP to it. Return its assembly (or "")."""
+        if not self.v3 or reader.peek() is None or reader.peek().name != "JMP":
+            return ""
+        jump = reader.get()
+        jump.name += "_LABEL"
+        return jump.to_asm(registers, self.mode) + "\n"
+
     def get_code(self):
         if self.code is not None:
             return self.code
         sections = {}
+        section_order = []  # emission order; Themida 3.x code is laid out in walk order, not address order
         for inst in self.instructions:
             if inst.name == "STARTLABEL":
                 section = VMFunctionSection(inst.args[0])
                 section.start = True
                 sections[section.address] = section
+                section_order.append(section.address)
             elif inst.name == "LABEL":
                 section = VMFunctionSection(inst.args[0])
                 sections[section.address] = section
+                section_order.append(section.address)
                 section.instructions.append(inst)
             else:
                 section.instructions.append(inst)
@@ -977,7 +1067,7 @@ class VMFunction(vm.VMFunction):
         next_section = 0
         registers = {v: k.lower() for k, v in self.vm_info.regs_fields.iteritems()}
 
-        for address in sorted(sections.keys()):
+        for address in (section_order if self.v3 else sorted(sections.keys())):
             if next_section:
                 assert next_section == address
                 next_section = 0
@@ -996,7 +1086,10 @@ class VMFunction(vm.VMFunction):
                 if section_counter == 1:
                     arch = self.file.get_arch()
                     code = cleaner.clean_animals_vm_code(code, arch)
-                    if self.integrity_used:
+                    # Themida 3.x: the integrity check (it reads AddressOfEntryPoint from the PE header) has an
+                    # out-of-line branch further down in walk order, so this text cut would leave a dangling
+                    # jump. Keep the check: it is native code doing what the VM did.
+                    if self.integrity_used and not self.v3:
                         # TODO: Find the end in a proper way...
                         index = max(max(code.rfind(arch.translate("add {R:sp}, 0x")), code.rfind(arch.translate("pop {R:sp}"))), code.rfind(arch.translate("mov {R:sp}, {S} [{R:sp}]")))
                         if index != -1:
@@ -1014,6 +1107,7 @@ class VMFunction(vm.VMFunction):
                     if inst.name == "JMP_UNKNOWN":
                         sectioncode += str(self.file.get_instruction(inst.args[0])) + "\n"
                         # Stop
+                        sectioncode += self._v3_trailing_jump(reader, registers)
                         assert reader.get() is None
                         break
                     elif inst.name.split("_")[0] in ("JMP", "CALL", "RET"):
@@ -1027,6 +1121,7 @@ class VMFunction(vm.VMFunction):
 
                 sectioncode += inst.to_asm(registers, self.mode) + "\n"
                 if stop:
+                    sectioncode += self._v3_trailing_jump(reader, registers)
                     assert reader.get() is None
                     break
 
@@ -1036,7 +1131,7 @@ class VMFunction(vm.VMFunction):
         if section_counter == 1:
             arch = self.file.get_arch()
             code = cleaner.clean_animals_vm_code(code, arch)
-            if self.integrity_used:
+            if self.integrity_used and not self.v3:   # see above
                 # TODO: Find the end in a proper way...
                 index = max(max(code.rfind(arch.translate("add {R:sp}, 0x")), code.rfind(arch.translate("pop {R:sp}"))), code.rfind(arch.translate("mov {R:sp}, {S} [{R:sp}]")))
                 if index != -1:

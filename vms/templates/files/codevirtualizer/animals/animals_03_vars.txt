@@ -28,6 +28,13 @@ ADD_@SIZE@_VAR_IMM V Y
 =>
 MOV_@SIZE@_VAR_REGIMM V X Y
 
+# [REG-IMM] (Themida 3.x emits sub; the result is masked to the native size)
+DEFINE_TEMPLATE
+MOV_@SIZE@_VAR_REG V X
+SUB_@SIZE@_VAR_IMM V Y
+=>
+MOV_@SIZE@_VAR_REGIMM V X (0-Y)
+
 # [REG*X+REG]
 DEFINE_TEMPLATE
 MOV_@SIZE@_VAR_REGMUL V Y Z

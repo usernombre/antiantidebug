@@ -185,6 +185,14 @@ MOV = HandlerMatch(match_funcs([
 ]), create_dolphin_handler_reader_class("MOV_{S:DST_SIZE}_{T:DST_OFFSET_TYPE}_{T:SRC_TYPE}",
                                         [("STATE", "{AT:DST_OFFSET_TYPE}", "DST_VALUE"), ("STATE", "{AT:SRC_TYPE}", "SRC_VALUE")]))
 
+# Themida 3.x (64 bit): movsxd r64, r/m32. Shaped like MOV: the result is sign-extended from the source's low dword
+MOVSXD = HandlerMatch(match_funcs([
+    lines_matcher(["VMStructField{SS}($O[OP_RESULT]) = (SDWORD)VMStructField{SS}($O[SRC_VALUE])"]),
+    update_random_flags,
+    UPDATE_IP_AND_JUMP
+]), create_dolphin_handler_reader_class("MOVSX_{S:DST_SIZE}_DWORD_{T:DST_OFFSET_TYPE}_{T:SRC_TYPE}",
+                                        [("STATE", "{AT:DST_OFFSET_TYPE}", "DST_VALUE"), ("STATE", "{AT:SRC_TYPE}", "SRC_VALUE")]))
+
 def movzx_movsx(name, operation):
     sizes = ["BYTE", "WORD"]
     lines = ["If(($V[VAR_SRC_SIZE] == $R[SIZE_{SIZE}]))",
@@ -377,6 +385,7 @@ HANDLERS = [
     COMMON_BINARY_OP_FLAGS,
     MOVZX_MOVSX,
     MOV,
+    MOVSXD,
     STORE_RESULT,
     LOAD_SRC_IMM,
     LOAD_SRC_QWORD_IMM,

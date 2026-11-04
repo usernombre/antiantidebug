@@ -68,6 +68,13 @@ VMStructField@SIZE_WORD@(?O[EIP]) += $N[SIZE]
 =>
 UpdateEip($N[SIZE])
 
+# Themida 3.x: every instruction stores the distance to the next one, as a two's complement dword.
+# (UpdateEip with a non-constant argument means sign-magnitude, as produced by the rule below.)
+DEFINE_TEMPLATE
+VMStructField@SIZE_WORD@(?O[EIP]) += ReadParameterDword($N[OFFSET])
+=>
+UpdateEipSigned(ReadParameterDword($[OFFSET]))
+
 DEFINE_TEMPLATE
 If((($V[X] & 0x80000000) != 0x0))
     VMStructField@SIZE_WORD@(?O[EIP]) -= ($V[X] & 0x7FFFFFFF)

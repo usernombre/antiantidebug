@@ -478,7 +478,7 @@ def simple_optimization(handler, instructions_container, index):
         return False
     to_optimize = 2
     # This can be safely be skipped
-    if isinstance(instructions_container.instructions[index+1], handlers_parser.Macro) and instructions_container.instructions[index+1].name == "UpdateEip":
+    if isinstance(instructions_container.instructions[index+1], handlers_parser.Macro) and instructions_container.instructions[index+1].name in ("UpdateEip", "UpdateEipSigned"):
         to_optimize += 1
     handler._optimize_instructions(instructions_container.instructions[index:index+to_optimize], {})
     handler.clean_instructions()
@@ -886,7 +886,7 @@ def get_reading_decoding_info(handlers, handler, fields, arch):
             else:
                 if current_decoding:
                     # We need to skip UpdateEip
-                    if not (isinstance(inst, handlers_parser.Macro) and inst.name == "UpdateEip"):
+                    if not (isinstance(inst, handlers_parser.Macro) and inst.name in ("UpdateEip", "UpdateEipSigned")):
                         decoding.append(DecodeParameter(offset, size, current_decoding))
                         current_decoding = None
                 replace_value_decoding(i)
