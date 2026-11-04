@@ -39,6 +39,7 @@ class VMHandler(object):
 class VMInit(VMHandler):
     cache = {}
     def __init__(self, vm_info, file, address):
+        #import pdb; pdb.set_trace()
         clean = cleaner.Cleaner(file)
         #clean.set_option("fixOperationConstantThruRegOnStack", True)
         clean.set_option("fixPush_allowConstants", True)
@@ -217,6 +218,7 @@ class VMHandlers(object):
         funcs = []
 
         original_addresses = {}
+        #import pdb; pdb.set_trace()
 
         # The different vm main with the same handlers feature is new, so if it is used,
         # the other handler was new reset handler for sure
@@ -231,6 +233,7 @@ class VMHandlers(object):
         self._start_progress_bar()
         for i in xrange(vm_info.init_handler.handlers_count):
             handler_address = file.read_pointer(vm_info.init_handler.handlers_address + i * arch.native_size())
+            #print "Handler %d at %x" % (i, handler_address)
             if fix_handlers:
                 handler_address = handler_address + vm_info.init_handler.base_address
             # Check if we already parsed this handler
@@ -300,6 +303,8 @@ class VMHandlers(object):
         while handlers_to_detect:
             undetected_handlers = []
             for handler in handlers_to_detect:
+                #handler.handler.print_instructions()
+                #import pdb; pdb.set_trace()
                 handler.info = common_handlers.match_handlers(parser, handler.handler, self.fields, self.HANDLERS, arch, self.global_vars)
                 if handler.info is None:
                     undetected_handlers.append(handler)
@@ -676,6 +681,15 @@ class VMFunctionJumper(vm.VMFunctionJumper):
         if file.mode == 32:
             address = cleaner.JunkSkipper(file).get_next_real_instruction(address).address
         reader = clean.get_reader(address)
+
+        #b = True
+        #while b:
+        #    res = reader.get()
+        #    if not res or res.opcode == "jmp":
+        #        b = False
+        #    print hex(res.address), res
+        #sys.exit()
+
         # pushf
         reader.get_cond(lambda x: x.opcode == mode.translate("pushf{SB}"))
         # push first_handler

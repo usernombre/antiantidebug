@@ -1,3 +1,6 @@
+import os
+import sys
+
 from _oreans_deobfuscator import ffi, lib
 
 REGISTERS = {    
@@ -147,6 +150,10 @@ class Cleaner(object):
         self.read_func = read
         self.mode = mode
         self.fake_jumps = {}
+        self.options = {}
+        # Print every original instruction run next to the instruction it was reduced to (OREANS_TRACE=1)
+        self.trace = bool(os.environ.get("OREANS_TRACE"))
+        self.trace_file = sys.stderr
 
         @ffi.callback("int(void*, uint64_t, unsigned char*, size_t)")
         def _read(null, address, buffer, size):
@@ -169,6 +176,9 @@ class Cleaner(object):
         self.cleaner = lib.create_cleaner(_read, mode, ffi.NULL)
         if self.cleaner == ffi.NULL:
             raise MemoryError()
+        if self.trace:
+            # The jumps the cleaner resolved are needed to retrace the original path
+            self.mark_fake_jumps()
 
     def set_reg_unused(self, reg):
         if reg.upper() in REGISTERS:
@@ -177,6 +187,7 @@ class Cleaner(object):
             raise ValueError("Invalid register %s" % reg)
 
     def set_option(self, option, value):
+        self.options[option] = value
         lib.set_option(self.cleaner, option, value)
 
     def mark_fake_jumps(self):
@@ -188,8 +199,97 @@ class Cleaner(object):
         next_address = lib.clean_instruction(self.cleaner, address, buffer, output_size)
         if next_address == 0:
             return None, ""
-        return (next_address, ffi.buffer(buffer, output_size[0])[:])
-        
+        data = ffi.buffer(buffer, output_size[0])[:]
+        if self.trace:
+            self._trace_clean(address, next_address, data)
+        return (next_address, data)
+
+    def _disassemble(self, address):
+        import pyx86utils
+        try:
+            return pyx86utils.Instruction(self.read_func(address, 20), address, self.mode)
+        except Exception:
+            return None
+
+    def _original_path(self, address, end_address, max_instructions=300):
+        """Rebuild the original instructions the cleaner consumed going from address to end_address.
+
+        The run isn't contiguous: jmps are followed and opaque conditional jumps are taken or skipped,
+        so walk the original code depth first and return the first path that lands on end_address,
+        as a list of (instruction, note) pairs.
+        """
+        # Defaults as in the Cleaner constructor (Cleaner.cpp)
+        follow_top_jumps = self.options.get("ignore_jumps", True)
+        follow_jumps = follow_top_jumps or self.options.get("ignore_nontop_jumps", False)
+        follow_calls = self.options.get("ignore_calls", False)
+
+        def successors(inst, top):
+            if inst.opcode == "jmp" and inst.operands[0].is_immediate():
+                if follow_top_jumps if top else follow_jumps:
+                    return [(inst.operands[0].value, "followed")]
+                return [(inst.next, None)]
+            if inst.opcode == "call" and inst.operands[0].is_immediate() and follow_calls:
+                return [(inst.operands[0].value, "followed")]
+            if inst.opcode in ("ja", "jae", "jb", "jbe", "jz", "jg", "jge", "jl", "jle", "jnz", "jno", "jnp", "jns", "jo", "jp", "js") \
+                    and inst.operands[0].is_immediate():
+                # The cleaner marks the jump by the address right after it minus 6 (Cleaner::clearMovConstant)
+                taken = self.fake_jumps.get(inst.next - 6)
+                if taken is not None:
+                    if taken:
+                        return [(inst.operands[0].value, "taken")]
+                    return [(inst.next, "not taken")]
+                return [(inst.next, "not taken?"), (inst.operands[0].value, "taken?")]
+            return [(inst.next, None)]
+
+        def is_terminal(inst):
+            # ret / jmp reg / jmp [mem]: the run can only end right after it
+            return inst.opcode == "ret" or (inst.opcode == "jmp" and not inst.operands[0].is_immediate())
+
+        def walk(current, path, visited):
+            if current == end_address and path:
+                return path
+            if len(path) >= max_instructions or current in visited:
+                return None
+            inst = self._disassemble(current)
+            if inst is None:
+                return None
+            if is_terminal(inst):
+                if inst.next == end_address:
+                    return path + [(inst, None)]
+                return None
+            for next_address, note in successors(inst, not path):
+                res = walk(next_address, path + [(inst, note)], visited | set([current]))
+                if res is not None:
+                    return res
+            return None
+
+        return walk(address, [], set())
+
+    def _trace_clean(self, address, next_address, data):
+        import pyx86utils
+        width = self.mode / 4
+        out = self.trace_file
+        try:
+            cleaned = str(pyx86utils.Instruction(data, address, self.mode))
+        except Exception:
+            cleaned = "<%s>" % data.encode("hex")
+        path = self._original_path(address, next_address)
+
+        if path is not None and len(path) == 1 and str(path[0][0]) == cleaned:
+            out.write("%0*x  %s\n" % (width, address, cleaned))
+            return
+
+        if path is None:
+            out.write("%0*x  ? -> 1  (original path to %0*x not recovered)\n" % (width, address, width, next_address))
+        else:
+            out.write("%0*x  %d -> 1\n" % (width, address, len(path)))
+            for inst, note in path:
+                line = "    %0*x  %-24s %s" % (width, inst.address, self.read_func(inst.address, inst.size).encode("hex"), inst)
+                if note:
+                    line = "%-72s ; %s" % (line, note)
+                out.write(line + "\n")
+        out.write("    %s=> %s\n" % (" " * width, cleaned))
+
     def __del__(self):
         if self.cleaner != ffi.NULL:
             lib.destroy_cleaner(self.cleaner)

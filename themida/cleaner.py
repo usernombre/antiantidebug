@@ -53,6 +53,7 @@ class CleanReader(object):
             #for i in xrange(30):
             #    print "%08x: %s" % (self.address, self.get())
             raise CleanerException("Wrong condition: %s" % str(res))
+        print "COND", hex(res.address), res
         return res
 
 
@@ -69,6 +70,7 @@ class JunkSkipper(object):
             raise Exception("loop")
         self.loop[address] = 1
         inst = self.file.get_instruction(address)
+        print "SKIPPER", hex(inst.address), inst
         inst = self._clean_instruction(inst)
         self.instructions[address] = inst
         return inst
